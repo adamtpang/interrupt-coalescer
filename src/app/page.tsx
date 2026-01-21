@@ -2,43 +2,13 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import JSZip from "jszip";
-import { get, set, del } from "idb-keyval";
-
-// Types
-type Tier = "S" | "A" | "B" | "C" | "D" | "F" | null;
-
-interface Task {
-  id: string;
-  text: string;
-  completed: boolean;
-  children: Task[];
-}
-
-interface Folder {
-  id: string;
-  name: string;
-  tier: Tier;
-  tasks: Task[];
-  expanded: boolean;
-}
-
-interface SortResponse {
-  tasks: { text: string; bucket: string }[];
-}
+import { get, set } from "idb-keyval";
+import { Folder, Task, Tier, SortResponse, TIERS, TIER_COLORS } from "@/lib/types";
+import { FolderCard } from "@/components/FolderCard";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
-
-const TIERS: Tier[] = ["S", "A", "B", "C", "D", "F"];
-const TIER_COLORS: Record<string, string> = {
-  S: "bg-red-500",
-  A: "bg-orange-500",
-  B: "bg-yellow-500",
-  C: "bg-green-500",
-  D: "bg-blue-500",
-  F: "bg-purple-500",
-};
 
 export default function Home() {
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -76,7 +46,7 @@ export default function Home() {
   const handleFile = async (f: File) => {
     if (f.name.endsWith(".zip")) {
       const zip = new JSZip();
-      const content = await zip.loadAsync(f);
+      await zip.loadAsync(f);
       const newFolders: Folder[] = [];
 
       const processFile = async (relativePath: string, file: JSZip.JSZipObject) => {
@@ -103,7 +73,7 @@ export default function Home() {
         }
 
         // Also check filename prefix (e.g. "[A] Folder.txt") for back-compat
-        const tierMatch = fileName.match(/^\[([SABCDF])\]\s*(.+)/);
+        const tierMatch = fileName.match(/^\^([SABCDF])\]\s*(.+)/);
         if (tierMatch) {
           tier = tierMatch[1] as Tier;
           cleanName = tierMatch[2];
@@ -174,8 +144,6 @@ export default function Home() {
       setFolders(prev => {
         const existingMap = new Map(prev.map(f => [f.name, f]));
         newFolders.forEach(f => {
-          // If folder exists, overwrite tasks but keep ID? Or just overwrite?
-          // Let's overwrite tasks but keep extended props if needed
           existingMap.set(f.name, f);
         });
         return Array.from(existingMap.values());
@@ -194,12 +162,12 @@ export default function Home() {
     e.stopPropagation();
     setIsDragActive(false);
     if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   const processContent = async (content: string) => {
-    const existingNames = new Set(folders.map(f => f.name.toLowerCase()));
     const allLines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     const newLines = allLines.filter(line => {
       const inExisting = folders.some(f =>
@@ -347,7 +315,6 @@ export default function Home() {
     const date = new Date().toISOString().split("T")[0];
 
     TIERS.forEach(tier => {
-      // tier is string here ("S", "A", etc) so it's safe
       if (!tier) return;
       const tierFolder = zip.folder(tier);
       folders.filter(f => f.tier === tier).forEach(folder => {
@@ -380,62 +347,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  // Render task tree
-  const renderTask = (task: Task, folderId: string, depth: number = 0) => (
-    <div key={task.id} className={`${depth > 0 ? "ml-4 border-l border-[var(--border)] pl-2" : ""}`}>
-      <div className="flex items-center gap-2 py-1 group">
-        <input
-          type="checkbox"
-          checked={task.completed}
-          onChange={() => toggleTask(folderId, task.id)}
-          className="accent-[var(--primary)]"
-        />
-        <span className={`flex-1 text-sm ${task.completed ? "line-through opacity-50" : ""}`}>
-          {task.text}
-        </span>
-        {!task.completed && (
-          <button
-            onClick={() => {
-              const text = prompt("Add subtask:");
-              if (text) addSubtask(folderId, task.id, text);
-            }}
-            className="opacity-0 group-hover:opacity-100 text-xs text-[var(--primary)]"
-          >
-            + sub
-          </button>
-        )}
-      </div>
-      {task.children.map(child => renderTask(child, folderId, depth + 1))}
-    </div>
-  );
-
-  // Render folder card
-  const renderFolder = (folder: Folder) => (
-    <div
-      key={folder.id}
-      draggable
-      onDragStart={(e) => handleFolderDragStart(e, folder.id)}
-      onDragEnd={handleFolderDragEnd}
-      className={`bg-[var(--card)] border border-[var(--border)] rounded-lg p-2 cursor-grab active:cursor-grabbing transition-all hover:border-[var(--primary)] ${draggedFolderId === folder.id ? "opacity-50 scale-95" : ""
-        }`}
-    >
-      <div
-        className="flex items-center gap-2 cursor-pointer"
-        onClick={() => toggleExpand(folder.id)}
-      >
-        <span>{folder.expanded ? "📂" : "📁"}</span>
-        <span className="font-medium text-sm truncate flex-1">{folder.name}</span>
-        <span className="text-xs text-[var(--muted-foreground)]">{folder.tasks.length}</span>
-      </div>
-
-      {folder.expanded && (
-        <div className="mt-2 pt-2 border-t border-[var(--border)]">
-          {folder.tasks.map(task => renderTask(task, folder.id))}
-        </div>
-      )}
-    </div>
-  );
-
   const unsortedFolders = folders.filter(f => f.tier === null);
 
   return (
@@ -448,8 +359,7 @@ export default function Home() {
 
       {/* Drop Zone */}
       <div
-        className={`drop-zone rounded-xl p-6 text-center cursor-pointer transition-all mb-6 ${isDragActive ? "active glow-primary" : ""
-          }`}
+        className={`drop-zone rounded-xl p-6 text-center cursor-pointer transition-all mb-6 ${isDragActive ? "active glow-primary" : ""}`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
@@ -498,7 +408,18 @@ export default function Home() {
                   {tier}
                 </div>
                 <div className="flex-1 min-h-[60px] bg-[var(--card)] border border-[var(--border)] rounded-lg p-2 flex flex-wrap gap-2 items-start">
-                  {tierFolders.map(renderFolder)}
+                  {tierFolders.map(folder => (
+                    <FolderCard
+                      key={folder.id}
+                      folder={folder}
+                      isDragged={draggedFolderId === folder.id}
+                      onDragStart={handleFolderDragStart}
+                      onDragEnd={handleFolderDragEnd}
+                      onToggleExpand={toggleExpand}
+                      onToggleTask={toggleTask}
+                      onAddSubtask={addSubtask}
+                    />
+                  ))}
                   {tierFolders.length === 0 && (
                     <span className="text-xs text-[var(--muted-foreground)] opacity-50 self-center">
                       Drag folders here
@@ -519,7 +440,18 @@ export default function Home() {
               ?
             </div>
             <div className="flex-1 min-h-[60px] bg-[var(--card)] border border-dashed border-[var(--border)] rounded-lg p-2 flex flex-wrap gap-2 items-start">
-              {unsortedFolders.map(renderFolder)}
+              {unsortedFolders.map(folder => (
+                <FolderCard
+                  key={folder.id}
+                  folder={folder}
+                  isDragged={draggedFolderId === folder.id}
+                  onDragStart={handleFolderDragStart}
+                  onDragEnd={handleFolderDragEnd}
+                  onToggleExpand={toggleExpand}
+                  onToggleTask={toggleTask}
+                  onAddSubtask={addSubtask}
+                />
+              ))}
               {unsortedFolders.length === 0 && (
                 <span className="text-xs text-[var(--muted-foreground)] opacity-50 self-center">
                   Unsorted folders appear here

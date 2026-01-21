@@ -24,13 +24,6 @@ export function createAIClient(config: AIClientConfig): OpenAI {
         replicate: 'https://api.replicate.com/v1/', // Replicate OpenAI-compatible endpoint
     };
 
-    const modelMap: Record<AIProvider, string> = {
-        openai: 'gpt-4o-mini',
-        gemini: 'gemini-2.0-flash',
-        claude: 'claude-3-5-sonnet-latest',
-        replicate: 'meta/llama-3.3-70b-instruct',
-    };
-
     return new OpenAI({
         apiKey,
         baseURL: baseURLMap[provider],

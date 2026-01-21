@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
         console.log('Raw AI output length:', output.length);
 
         // Try to extract and repair JSON
-        let jsonStr = repairJSON(output);
+        const jsonStr = repairJSON(output);
 
         let parsedResponse: SortResponse;
         try {

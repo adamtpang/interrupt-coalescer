@@ -1,35 +1,31 @@
-/**
- * Type definitions for the FlowState Sorter application
- */
+export type Tier = "S" | "A" | "B" | "C" | "D" | "F" | null;
 
 export interface Task {
-    id: string;
-    text: string;
-    bucket: string;
+  id: string;
+  text: string;
+  completed: boolean;
+  children: Task[];
 }
 
-export interface Bucket {
-    name: string;
-    tasks: Task[];
-}
-
-export interface SortRequest {
-    batch: string[];
-    existingBuckets: string[];
-    apiKey: string;
-    provider?: 'openai' | 'gemini' | 'claude';
+export interface Folder {
+  id: string;
+  name: string;
+  tier: Tier;
+  tasks: Task[];
+  expanded: boolean;
 }
 
 export interface SortResponse {
-    tasks: Array<{
-        text: string;
-        bucket: string;
-    }>;
+  tasks: { text: string; bucket: string }[];
 }
 
-export interface ProcessingState {
-    isProcessing: boolean;
-    currentBatch: number;
-    totalBatches: number;
-    error: string | null;
-}
+export const TIERS: Tier[] = ["S", "A", "B", "C", "D", "F"];
+
+export const TIER_COLORS: Record<string, string> = {
+  S: "bg-red-500",
+  A: "bg-orange-500",
+  B: "bg-yellow-500",
+  C: "bg-green-500",
+  D: "bg-blue-500",
+  F: "bg-purple-500",
+};

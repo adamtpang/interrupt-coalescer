@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import JSZip from "jszip";
 
 // Unified tree structure - everything is a TaskNode
@@ -357,7 +358,9 @@ export default function Deconstructor() {
             <div className="text-center mb-8">
                 <h1 className="text-2xl md:text-3xl font-bold">FlowList</h1>
                 <p className="text-[var(--muted-foreground)] text-sm mt-1">Break tasks into ≤3 min steps</p>
-                <a href="/" className="text-xs text-[var(--primary)] hover:underline">← Back to Organize</a>
+        <Link href="/" className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors">
+          ← Back to FlowList
+        </Link>
             </div>
 
             {/* UPLOAD */}
@@ -449,7 +452,7 @@ export default function Deconstructor() {
                                 </div>
 
                                 <div className={`space-y-2 border-l-2 ${tierColors[tier].bg} pl-3`}>
-                                    {tierFolders.map((folder, folderIdx) => {
+                                    {tierFolders.map((folder) => {
                                         const globalIdx = folders.findIndex(f => f.name === folder.name);
                                         const completedTasks = folder.tasks.filter(t => t.completed).length;
 
@@ -518,7 +521,7 @@ export default function Deconstructor() {
                     })}
 
                     <p className="text-xs text-[var(--muted-foreground)] text-center mt-6">
-                        💡 Hover over any task and click "⚛️ Break down" to split into ≤3 min steps
+                        💡 Hover over any task and click &quot;⚛️ Break down&quot; to split into ≤3 min steps
                     </p>
                 </div>
             )}
