@@ -1,86 +1,195 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { splitIntoBatches } from "@/lib/chunker";
-import type { Task, Bucket, SortResponse } from "@/lib/types";
 import JSZip from "jszip";
+import { get, set, del } from "idb-keyval";
+
+// Types
+type Tier = "S" | "A" | "B" | "C" | "D" | "F" | null;
+
+interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+  children: Task[];
+}
+
+interface Folder {
+  id: string;
+  name: string;
+  tier: Tier;
+  tasks: Task[];
+  expanded: boolean;
+}
+
+interface SortResponse {
+  tasks: { text: string; bucket: string }[];
+}
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
 
-interface LogEntry {
-  id: string;
-  type: "info" | "task" | "success" | "error";
-  message: string;
-  timestamp: Date;
-}
-
-type SortMode = "count" | "alpha";
-type Tier = "A" | "B" | "C" | null;
-
-interface BucketWithTier extends Bucket {
-  tier?: Tier;
-}
+const TIERS: Tier[] = ["S", "A", "B", "C", "D", "F"];
+const TIER_COLORS: Record<string, string> = {
+  S: "bg-red-500",
+  A: "bg-orange-500",
+  B: "bg-yellow-500",
+  C: "bg-green-500",
+  D: "bg-blue-500",
+  F: "bg-purple-500",
+};
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
-  const [fileContent, setFileContent] = useState<string>("");
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, startTime: 0 });
-  const [eta, setEta] = useState<string>("");
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [buckets, setBuckets] = useState<BucketWithTier[]>([]);
-  const [sortMode, setSortMode] = useState<SortMode>("count");
-  const [showFolders, setShowFolders] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load persisted buckets on mount
+  // Load from IndexedDB
   useEffect(() => {
-    const saved = localStorage.getItem("interrupt-buckets");
-    if (saved) {
-      try {
-        setBuckets(JSON.parse(saved));
-      } catch (e) { }
-    }
+    get("flowlist-folders").then((saved) => {
+      if (saved) setFolders(saved);
+      setIsLoaded(true);
+    });
   }, []);
 
-  // Save buckets to localStorage
+  // Save to IndexedDB
   useEffect(() => {
-    if (buckets.length > 0) {
-      localStorage.setItem("interrupt-buckets", JSON.stringify(buckets));
+    if (isLoaded) {
+      set("flowlist-folders", folders);
     }
-  }, [buckets]);
+  }, [folders, isLoaded]);
 
-  const addLog = (type: LogEntry["type"], message: string) => {
-    const entry: LogEntry = { id: generateId(), type, message, timestamp: new Date() };
-    setLogs(prev => [...prev, entry]);
-    setTimeout(() => {
-      logContainerRef.current?.scrollTo({ top: logContainerRef.current.scrollHeight, behavior: "smooth" });
-    }, 50);
-  };
-
+  // File handling
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragActive(e.type === "dragenter" || e.type === "dragover");
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragActive(e.type === "dragenter" || e.type === "dragover");
+    }
   }, []);
 
   const handleFile = async (f: File) => {
-    if (!f.name.endsWith(".txt") && !f.name.endsWith(".md")) {
-      addLog("error", "Invalid file type. Drop a .txt or .md file.");
+    if (f.name.endsWith(".zip")) {
+      const zip = new JSZip();
+      const content = await zip.loadAsync(f);
+      const newFolders: Folder[] = [];
+
+      const processFile = async (relativePath: string, file: JSZip.JSZipObject) => {
+        if (file.dir) return; // Skip directories
+        if (relativePath.startsWith("__MACOSX/") || relativePath.includes(".DS_Store")) return; // Skip junk
+
+        const text = await file.async("string");
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+
+        // Parse tiers from path (e.g., "A/Work.txt" or "Work.txt")
+        const parts = relativePath.split("/");
+        const fileName = parts[parts.length - 1].replace(/\.(txt|md)$/, "");
+
+        // Check for tier in path or filename prefix
+        let tier: Tier = null;
+        let cleanName = fileName;
+
+        // Check path (e.g. "A/Folder.txt")
+        if (parts.length > 1) {
+          const parentDir = parts[parts.length - 2];
+          if (["S", "A", "B", "C", "D", "F"].includes(parentDir)) {
+            tier = parentDir as Tier;
+          }
+        }
+
+        // Also check filename prefix (e.g. "[A] Folder.txt") for back-compat
+        const tierMatch = fileName.match(/^\[([SABCDF])\]\s*(.+)/);
+        if (tierMatch) {
+          tier = tierMatch[1] as Tier;
+          cleanName = tierMatch[2];
+        }
+
+        // Parse checksum/count suffix if present (e.g. "Folder (5)")
+        cleanName = cleanName.replace(/\s*\(\d+\)$/, "");
+
+        const tasks: Task[] = [];
+        const taskStack: { task: Task; level: number }[] = [];
+
+        lines.forEach(line => {
+          const indentMatch = line.match(/^(\s*)/);
+          const indent = indentMatch ? indentMatch[1].length : 0;
+          const level = Math.floor(indent / 2); // Assume 2 spaces per level
+
+          const cleanLine = line.replace(/^\s*-\s*\[([ xX])\]\s*/, "") // Remove "- [ ]"
+            .replace(/^\s*-\s*/, ""); // OR remove just "- "
+          const completed = line.includes("[x]") || line.includes("[X]");
+
+          const newTask: Task = {
+            id: generateId(),
+            text: cleanLine,
+            completed,
+            children: []
+          };
+
+          if (level === 0) {
+            tasks.push(newTask);
+            taskStack.length = 0; // Reset stack
+            taskStack.push({ task: newTask, level: 0 });
+          } else {
+            // Find parent
+            while (taskStack.length > 0 && taskStack[taskStack.length - 1].level >= level) {
+              taskStack.pop();
+            }
+            const parent = taskStack[taskStack.length - 1];
+            if (parent) {
+              parent.task.children.push(newTask);
+              taskStack.push({ task: newTask, level });
+            } else {
+              // Fallback if indentation is weird
+              tasks.push(newTask);
+              taskStack.push({ task: newTask, level: 0 });
+            }
+          }
+        });
+
+        if (tasks.length > 0) {
+          newFolders.push({
+            id: generateId(),
+            name: cleanName,
+            tier,
+            tasks,
+            expanded: false
+          });
+        }
+      };
+
+      const promises: Promise<void>[] = [];
+      zip.forEach((relativePath, file) => {
+        promises.push(processFile(relativePath, file));
+      });
+
+      await Promise.all(promises);
+
+      // Update state, merging with existing
+      setFolders(prev => {
+        const existingMap = new Map(prev.map(f => [f.name, f]));
+        newFolders.forEach(f => {
+          // If folder exists, overwrite tasks but keep ID? Or just overwrite?
+          // Let's overwrite tasks but keep extended props if needed
+          existingMap.set(f.name, f);
+        });
+        return Array.from(existingMap.values());
+      });
+
       return;
     }
-    setFile(f);
+
+    if (!f.name.endsWith(".txt") && !f.name.endsWith(".md")) return;
     const content = await f.text();
-    setFileContent(content);
-    const lines = content.split(/\r?\n/).filter(l => l.trim()).length;
-    addLog("info", `📄 Loaded "${f.name}" — ${lines} tasks found`);
+    await processContent(content);
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragActive(false);
@@ -89,369 +198,347 @@ export default function Home() {
 
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-  const formatEta = (seconds: number): string => {
-    if (seconds < 60) return `${Math.ceil(seconds)}s`;
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.ceil(seconds % 60);
-    return `${mins}m ${secs}s`;
-  };
+  const processContent = async (content: string) => {
+    const existingNames = new Set(folders.map(f => f.name.toLowerCase()));
+    const allLines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const newLines = allLines.filter(line => {
+      const inExisting = folders.some(f =>
+        f.tasks.some(t => t.text.toLowerCase() === line.toLowerCase())
+      );
+      return !inExisting;
+    });
 
-  // Process a single batch with retry
-  const processBatch = async (
-    batch: { lines: string[]; index: number },
-    existingBuckets: string[],
-    retries: number = 3
-  ): Promise<SortResponse> => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const response = await fetch("/api/sort", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batch: batch.lines, existingBuckets }),
-        });
-
-        if (response.status === 503 && attempt < retries) {
-          addLog("info", `⏳ Network timeout, retrying in 5s... (${attempt}/${retries})`);
-          await delay(5000);
-          continue;
-        }
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Processing failed");
-        }
-
-        return response.json();
-      } catch (err) {
-        if (attempt < retries && err instanceof TypeError) {
-          addLog("info", `⏳ Connection error, retrying in 5s... (${attempt}/${retries})`);
-          await delay(5000);
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw new Error("Max retries exceeded");
-  };
-
-  const processFile = async () => {
-    if (!fileContent) return;
-
-    // Deduplication
-    const existingTasks = new Set<string>();
-    buckets.forEach(b => b.tasks.forEach(t => existingTasks.add(t.text.toLowerCase().trim())));
-
-    const allLines = fileContent.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-    const newLines = allLines.filter(line => !existingTasks.has(line.toLowerCase().trim()));
-    const skipped = allLines.length - newLines.length;
-
-    if (skipped > 0) addLog("info", `♻️ Skipped ${skipped} duplicates`);
-
-    if (newLines.length === 0) {
-      addLog("success", "✅ All tasks already sorted!");
-      setShowFolders(true);
-      return;
-    }
+    if (newLines.length === 0) return;
 
     const BATCH_SIZE = 30;
-    const PARALLEL = 5;
-
-    const batches: { lines: string[]; index: number }[] = [];
+    const batches: string[][] = [];
     for (let i = 0; i < newLines.length; i += BATCH_SIZE) {
-      batches.push({ lines: newLines.slice(i, i + BATCH_SIZE), index: batches.length });
+      batches.push(newLines.slice(i, i + BATCH_SIZE));
     }
 
     setIsProcessing(true);
-    const startTime = Date.now();
-    setProgress({ current: 0, total: batches.length, startTime });
-    setLogs([]);
+    setProgress({ current: 0, total: batches.length });
 
-    addLog("info", `🚀 ${newLines.length} tasks → ${batches.length} batches (${PARALLEL}x parallel)`);
-
-    const newBuckets: Map<string, { tasks: Task[]; tier?: Tier }> = new Map();
-    buckets.forEach(b => newBuckets.set(b.name, { tasks: [...b.tasks], tier: b.tier }));
-
-    let completed = 0;
+    const newFolders = new Map<string, Task[]>();
+    folders.forEach(f => newFolders.set(f.name, [...f.tasks]));
 
     try {
-      for (let i = 0; i < batches.length; i += PARALLEL) {
-        const group = batches.slice(i, i + PARALLEL);
-        const existingBucketNames = Array.from(newBuckets.keys());
+      for (let i = 0; i < batches.length; i++) {
+        const response = await fetch("/api/sort", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            batch: batches[i],
+            existingBuckets: Array.from(newFolders.keys())
+          }),
+        });
 
-        addLog("info", `⏳ Batch ${i + 1}-${Math.min(i + PARALLEL, batches.length)}/${batches.length}`);
+        if (!response.ok) throw new Error("Processing failed");
+        const data: SortResponse = await response.json();
 
-        const results = await Promise.all(
-          group.map(batch => processBatch(batch, existingBucketNames))
-        );
-
-        for (const data of results) {
-          for (const item of data.tasks) {
-            const task: Task = { id: generateId(), text: item.text, bucket: item.bucket };
-
-            if (!newBuckets.has(item.bucket)) {
-              newBuckets.set(item.bucket, { tasks: [], tier: null });
-              addLog("success", `📁 New: "${item.bucket}"`);
-            }
-
-            newBuckets.get(item.bucket)!.tasks.push(task);
+        for (const item of data.tasks) {
+          const task: Task = { id: generateId(), text: item.text, completed: false, children: [] };
+          if (!newFolders.has(item.bucket)) {
+            newFolders.set(item.bucket, []);
           }
+          newFolders.get(item.bucket)!.push(task);
         }
 
-        completed += group.length;
-        setProgress({ current: completed, total: batches.length, startTime });
-
-        setBuckets(Array.from(newBuckets.entries()).map(([name, data]) => ({
-          name,
-          tasks: data.tasks,
-          tier: data.tier
-        })));
-
-        const elapsed = (Date.now() - startTime) / 1000;
-        const perBatch = elapsed / completed;
-        const remaining = (batches.length - completed) * perBatch;
-        setEta(formatEta(remaining));
-
-        if (i + PARALLEL < batches.length) await delay(500);
+        setProgress({ current: i + 1, total: batches.length });
+        if (i < batches.length - 1) await delay(300);
       }
 
-      const totalTasks = Array.from(newBuckets.values()).reduce((s, d) => s + d.tasks.length, 0);
-      addLog("success", `✅ Done! ${totalTasks} tasks in ${newBuckets.size} folders`);
-      setShowFolders(true);
+      // Merge with existing folders, new ones get tier: null
+      const updatedFolders: Folder[] = [];
+      const existingFolderMap = new Map(folders.map(f => [f.name, f]));
+
+      newFolders.forEach((tasks, name) => {
+        const existing = existingFolderMap.get(name);
+        updatedFolders.push({
+          id: existing?.id || generateId(),
+          name,
+          tier: existing?.tier || null,
+          tasks,
+          expanded: existing?.expanded || false,
+        });
+      });
+
+      setFolders(updatedFolders);
     } catch (err) {
-      addLog("error", `❌ ${err instanceof Error ? err.message : "Error"}`);
+      console.error(err);
     } finally {
       setIsProcessing(false);
-      setEta("");
     }
   };
 
-  // Set tier for a bucket
-  const setTier = (bucketName: string, tier: Tier) => {
-    setBuckets(prev => prev.map(b =>
-      b.name === bucketName ? { ...b, tier } : b
+  // Drag-drop for tier sorting
+  const handleFolderDragStart = (e: React.DragEvent, folderId: string) => {
+    setDraggedFolderId(folderId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleFolderDragEnd = () => {
+    setDraggedFolderId(null);
+  };
+
+  const handleTierDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleTierDrop = (e: React.DragEvent, tier: Tier) => {
+    e.preventDefault();
+    if (!draggedFolderId) return;
+
+    setFolders(prev => prev.map(f =>
+      f.id === draggedFolderId ? { ...f, tier } : f
+    ));
+    setDraggedFolderId(null);
+  };
+
+  // Toggle folder expansion
+  const toggleExpand = (folderId: string) => {
+    setFolders(prev => prev.map(f =>
+      f.id === folderId ? { ...f, expanded: !f.expanded } : f
     ));
   };
 
-  // Download as ZIP
+  // Toggle task completion
+  const toggleTask = (folderId: string, taskId: string) => {
+    setFolders(prev => prev.map(f => {
+      if (f.id !== folderId) return f;
+
+      const toggleInTree = (tasks: Task[]): Task[] =>
+        tasks.map(t => t.id === taskId
+          ? { ...t, completed: !t.completed }
+          : { ...t, children: toggleInTree(t.children) }
+        );
+
+      return { ...f, tasks: toggleInTree(f.tasks) };
+    }));
+  };
+
+  // Add subtask
+  const addSubtask = (folderId: string, parentTaskId: string, text: string) => {
+    if (!text.trim()) return;
+
+    setFolders(prev => prev.map(f => {
+      if (f.id !== folderId) return f;
+
+      const addToTree = (tasks: Task[]): Task[] =>
+        tasks.map(t => t.id === parentTaskId
+          ? { ...t, children: [...t.children, { id: generateId(), text, completed: false, children: [] }] }
+          : { ...t, children: addToTree(t.children) }
+        );
+
+      return { ...f, tasks: addToTree(f.tasks) };
+    }));
+  };
+
+  // Clear all
+  const clearAll = () => {
+    setFolders([]);
+    localStorage.removeItem("flowlist-folders");
+  };
+
+  // Download ZIP
   const downloadZip = async () => {
     const zip = new JSZip();
     const date = new Date().toISOString().split("T")[0];
-    const rootFolder = zip.folder(`tasks-${date}`);
 
-    for (const bucket of sortedBuckets) {
-      const tierPrefix = bucket.tier ? `[${bucket.tier}] ` : "";
-      const folderName = `${tierPrefix}${bucket.name} (${bucket.tasks.length})`;
-      const content = bucket.tasks.map(t => `- [ ] ${t.text}`).join("\n");
-      rootFolder?.file(`${folderName}.txt`, content);
-    }
+    TIERS.forEach(tier => {
+      // tier is string here ("S", "A", etc) so it's safe
+      if (!tier) return;
+      const tierFolder = zip.folder(tier);
+      folders.filter(f => f.tier === tier).forEach(folder => {
+        const content = folder.tasks.map(t => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n");
+        tierFolder?.file(`${folder.name}.txt`, content);
+      });
+    });
 
+    // Unsorted
+    const unsortedFolder = zip.folder("_Unsorted");
+    folders.filter(f => f.tier === null).forEach(folder => {
+      const content = folder.tasks.map(t => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n");
+      unsortedFolder?.file(`${folder.name}.txt`, content);
+    });
+
+    // Generate blob with explicit MIME type
     const blob = await zip.generateAsync({ type: "blob" });
+    const zipBlob = new Blob([blob], { type: "application/zip" });
+    const url = URL.createObjectURL(zipBlob);
+
+    // Create and trigger download link
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `tasks-${date}.zip`;
+    a.href = url;
+    a.download = `flowlist-${date}.zip`;
+    document.body.appendChild(a); // Required for some browsers
     a.click();
+
+    // Cleanup
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
-  const clearBuckets = () => {
-    setBuckets([]);
-    localStorage.removeItem("interrupt-buckets");
-    addLog("info", "🗑️ Cleared all buckets");
-    setShowFolders(false);
-  };
+  // Render task tree
+  const renderTask = (task: Task, folderId: string, depth: number = 0) => (
+    <div key={task.id} className={`${depth > 0 ? "ml-4 border-l border-[var(--border)] pl-2" : ""}`}>
+      <div className="flex items-center gap-2 py-1 group">
+        <input
+          type="checkbox"
+          checked={task.completed}
+          onChange={() => toggleTask(folderId, task.id)}
+          className="accent-[var(--primary)]"
+        />
+        <span className={`flex-1 text-sm ${task.completed ? "line-through opacity-50" : ""}`}>
+          {task.text}
+        </span>
+        {!task.completed && (
+          <button
+            onClick={() => {
+              const text = prompt("Add subtask:");
+              if (text) addSubtask(folderId, task.id, text);
+            }}
+            className="opacity-0 group-hover:opacity-100 text-xs text-[var(--primary)]"
+          >
+            + sub
+          </button>
+        )}
+      </div>
+      {task.children.map(child => renderTask(child, folderId, depth + 1))}
+    </div>
+  );
 
-  // Sort buckets: by tier first, then by sortMode
-  const sortedBuckets = [...buckets].sort((a, b) => {
-    // Tier priority: A > B > C > null
-    const tierOrder: Record<string, number> = { A: 0, B: 1, C: 2 };
-    const getTierOrder = (tier: string | null | undefined) => tierOrder[tier ?? ""] ?? 3;
-    const tierDiff = getTierOrder(a.tier) - getTierOrder(b.tier);
-    if (tierDiff !== 0) return tierDiff;
+  // Render folder card
+  const renderFolder = (folder: Folder) => (
+    <div
+      key={folder.id}
+      draggable
+      onDragStart={(e) => handleFolderDragStart(e, folder.id)}
+      onDragEnd={handleFolderDragEnd}
+      className={`bg-[var(--card)] border border-[var(--border)] rounded-lg p-2 cursor-grab active:cursor-grabbing transition-all hover:border-[var(--primary)] ${draggedFolderId === folder.id ? "opacity-50 scale-95" : ""
+        }`}
+    >
+      <div
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => toggleExpand(folder.id)}
+      >
+        <span>{folder.expanded ? "📂" : "📁"}</span>
+        <span className="font-medium text-sm truncate flex-1">{folder.name}</span>
+        <span className="text-xs text-[var(--muted-foreground)]">{folder.tasks.length}</span>
+      </div>
 
-    if (sortMode === "count") return b.tasks.length - a.tasks.length;
-    return a.name.localeCompare(b.name);
-  });
+      {folder.expanded && (
+        <div className="mt-2 pt-2 border-t border-[var(--border)]">
+          {folder.tasks.map(task => renderTask(task, folder.id))}
+        </div>
+      )}
+    </div>
+  );
 
-  const maxTasks = Math.max(...buckets.map(b => b.tasks.length), 1);
-  const tierColors = { A: "text-green-400", B: "text-yellow-400", C: "text-red-400" };
+  const unsortedFolders = folders.filter(f => f.tier === null);
 
   return (
-    <main className="min-h-screen p-4 md:p-8 max-w-3xl mx-auto">
-      {/* Header + YouTube */}
+    <main className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto">
+      {/* Header */}
       <div className="text-center mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">🏭 Interrupt Coalescer</h1>
-        <p className="text-[var(--muted-foreground)] text-sm mt-1">
-          Raw todos → Flow-ready batches
-        </p>
-        <a href="/deconstructor" className="text-xs text-[var(--primary)] hover:underline mt-2 inline-block">
-          ⚛️ Go to Atomic Deconstructor →
-        </a>
-
-        {/* YouTube Embed */}
-        <div className="mt-4 aspect-video w-full max-w-md mx-auto rounded-lg overflow-hidden">
-          <iframe
-            className="w-full h-full"
-            src="https://www.youtube.com/embed/iDbdXTMnOmE"
-            title="Flow State inspiration"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
+        <h1 className="text-2xl md:text-3xl font-bold">FlowList</h1>
+        <p className="text-[var(--muted-foreground)] text-sm mt-1">Dump → Coalesce → Tier Rank</p>
       </div>
 
       {/* Drop Zone */}
       <div
-        className={`drop-zone rounded-xl p-8 md:p-12 text-center cursor-pointer transition-all ${isDragActive ? "active glow-primary" : ""
-          } ${file ? "border-[var(--primary)]" : ""}`}
+        className={`drop-zone rounded-xl p-6 text-center cursor-pointer transition-all mb-6 ${isDragActive ? "active glow-primary" : ""
+          }`}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
-        onDrop={handleDrop}
+        onDrop={handleFileDrop}
         onClick={() => fileInputRef.current?.click()}
       >
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.md"
+          accept=".txt,.md,.zip"
           className="hidden"
           onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
         />
-        <div className="text-4xl mb-2">{file ? "📄" : "📁"}</div>
-        {file ? (
-          <p className="font-mono text-[var(--primary)] text-sm">{file.name}</p>
-        ) : (
-          <p className="text-sm">Drop .txt or .md</p>
-        )}
+        <div className="text-3xl mb-1">📄</div>
+        <p className="text-sm">Drop .txt, .md to coalesce, or .zip to restore</p>
       </div>
 
-      {/* Progress + ETA */}
+      {/* Progress */}
       {isProcessing && (
-        <div className="mt-4 space-y-2">
-          <div className="flex justify-between text-xs text-[var(--muted-foreground)]">
-            <span>Processing...</span>
-            <span>
-              {progress.current}/{progress.total}
-              {eta && <span className="ml-2 text-[var(--primary)]">ETA: {eta}</span>}
-            </span>
-          </div>
+        <div className="mb-4">
           <div className="progress-bar">
-            <div className="progress-bar-fill" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
-          </div>
-        </div>
-      )}
-
-      {/* Logs */}
-      {logs.length > 0 && (
-        <div
-          ref={logContainerRef}
-          className="mt-4 bg-[var(--card)] border border-[var(--border)] rounded-lg p-3 h-32 overflow-y-auto font-mono text-xs space-y-0.5"
-        >
-          {logs.map((log) => (
             <div
-              key={log.id}
-              className={
-                log.type === "error" ? "text-red-400" :
-                  log.type === "success" ? "text-green-400" :
-                    log.type === "task" ? "text-blue-300 opacity-70" :
-                      "text-[var(--muted-foreground)]"
-              }
-            >
-              {log.message}
-            </div>
-          ))}
+              className="progress-bar-fill"
+              style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-center mt-1 text-[var(--muted-foreground)]">
+            Processing {progress.current}/{progress.total}
+          </p>
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="mt-4 flex gap-2 flex-wrap">
-        <button
-          onClick={processFile}
-          disabled={!file || isProcessing}
-          className="btn-primary flex-1 min-w-[120px]"
-        >
-          {isProcessing ? "⏳ Sorting..." : "⚡ Sort"}
-        </button>
-        {buckets.length > 0 && (
-          <>
-            <button onClick={() => setShowFolders(!showFolders)} className="btn-secondary">
-              {showFolders ? "Hide" : "Show"} Folders ({buckets.length})
-            </button>
-            <button onClick={downloadZip} className="btn-secondary">📥 ZIP</button>
-            <button onClick={clearBuckets} className="btn-secondary text-red-400">🗑️</button>
-          </>
-        )}
-      </div>
-
-      {/* Folders Section */}
-      {showFolders && buckets.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">
-              📂 Folders ({buckets.reduce((s, b) => s + b.tasks.length, 0)} tasks)
-            </h2>
-            <select
-              value={sortMode}
-              onChange={(e) => setSortMode(e.target.value as SortMode)}
-              className="input-field text-xs py-1"
-            >
-              <option value="count">By count</option>
-              <option value="alpha">A-Z</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            {sortedBuckets.map((bucket) => (
-              <div key={bucket.name} className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  {/* Tier buttons */}
-                  <div className="flex gap-1">
-                    {(["A", "B", "C"] as Tier[]).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setTier(bucket.name, bucket.tier === t ? null : t)}
-                        className={`w-6 h-6 text-xs font-bold rounded ${bucket.tier === t
-                          ? t === "A" ? "bg-green-500 text-black" :
-                            t === "B" ? "bg-yellow-500 text-black" :
-                              "bg-red-500 text-white"
-                          : "bg-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--border)]/80"
-                          }`}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                  <h3 className={`font-semibold flex-1 ${tierColors[bucket.tier!] || "text-[var(--foreground)]"}`}>
-                    {bucket.name}
-                  </h3>
-                  <span className="text-xs text-[var(--muted-foreground)]">{bucket.tasks.length}</span>
+      {/* Tier Rows */}
+      {folders.length > 0 && (
+        <div className="space-y-2">
+          {TIERS.map(tier => {
+            const tierFolders = folders.filter(f => f.tier === tier);
+            return (
+              <div
+                key={tier}
+                className="flex gap-2 items-stretch"
+                onDragOver={handleTierDragOver}
+                onDrop={(e) => handleTierDrop(e, tier)}
+              >
+                <div className={`${tier ? TIER_COLORS[tier] : ""} w-12 flex items-center justify-center rounded-lg text-white font-bold text-xl`}>
+                  {tier}
                 </div>
-
-                {/* Visual bar */}
-                <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden mb-2">
-                  <div
-                    className={`h-full transition-all ${bucket.tier === "A" ? "bg-green-500" :
-                      bucket.tier === "B" ? "bg-yellow-500" :
-                        bucket.tier === "C" ? "bg-red-500" :
-                          "bg-[var(--primary)]"
-                      }`}
-                    style={{ width: `${(bucket.tasks.length / maxTasks) * 100}%` }}
-                  />
+                <div className="flex-1 min-h-[60px] bg-[var(--card)] border border-[var(--border)] rounded-lg p-2 flex flex-wrap gap-2 items-start">
+                  {tierFolders.map(renderFolder)}
+                  {tierFolders.length === 0 && (
+                    <span className="text-xs text-[var(--muted-foreground)] opacity-50 self-center">
+                      Drag folders here
+                    </span>
+                  )}
                 </div>
-
-                <details>
-                  <summary className="text-xs text-[var(--muted-foreground)] cursor-pointer">
-                    Show tasks
-                  </summary>
-                  <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                    {bucket.tasks.map((task) => (
-                      <div key={task.id} className="text-xs text-[var(--muted-foreground)] pl-2 border-l border-[var(--border)]">
-                        {task.text}
-                      </div>
-                    ))}
-                  </div>
-                </details>
               </div>
-            ))}
+            );
+          })}
+
+          {/* Unsorted */}
+          <div
+            className="flex gap-2 items-stretch mt-4"
+            onDragOver={handleTierDragOver}
+            onDrop={(e) => handleTierDrop(e, null)}
+          >
+            <div className="bg-[var(--muted)] w-12 flex items-center justify-center rounded-lg text-[var(--muted-foreground)] font-bold text-xs">
+              ?
+            </div>
+            <div className="flex-1 min-h-[60px] bg-[var(--card)] border border-dashed border-[var(--border)] rounded-lg p-2 flex flex-wrap gap-2 items-start">
+              {unsortedFolders.map(renderFolder)}
+              {unsortedFolders.length === 0 && (
+                <span className="text-xs text-[var(--muted-foreground)] opacity-50 self-center">
+                  Unsorted folders appear here
+                </span>
+              )}
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      {folders.length > 0 && (
+        <div className="flex gap-2 mt-6 justify-center">
+          <button onClick={downloadZip} className="btn-primary text-sm px-4 py-2">
+            📥 Export ZIP
+          </button>
+          <button onClick={clearAll} className="btn-secondary text-sm px-4 py-2 text-red-400">
+            🗑️ Clear All
+          </button>
         </div>
       )}
     </main>

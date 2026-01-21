@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self';
+    connect-src 'self' https://caldumpcom-production.up.railway.app https://*.stripe.com https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://*.google.com https://firebase.googleapis.com wss://*.firebaseio.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    font-src 'self' https://fonts.gstatic.com;
+    script-src 'self' 'unsafe-inline' https://*.stripe.com https://*.firebaseio.com https://*.firebase.com https://*.googleapis.com https://apis.google.com;
+    img-src 'self' data: https://*.stripe.com https://*.googleapis.com https://*.googleusercontent.com;
+    frame-src https://*.stripe.com https://*.firebaseapp.com https://*.firebase.com https://apis.google.com https://accounts.google.com;
+    worker-src 'self' blob:;">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <title>caldump.com</title>
+  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  <style>
+    html,
+    body,
+    #root {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background-color: #d1d1d1;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>
