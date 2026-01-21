@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FlowState Sorter | AI-Powered Task Organization",
-  description: "Transform your chaotic todo lists into organized buckets using AI. Export clean Markdown for Obsidian.",
+  title: "AntList | Minimalist Task Organizer",
+  description: "Organize your chaotic thoughts with tiny, actionable steps.",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -23,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="light" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
-/* FlowState Sorter - Pokemon Black / Hacker Terminal Theme */
+/* AntList - Minimalist Zen Theme */
 
 :root {
-  --background: #0a0a0f;
-  --foreground: #e0e0e8;
-  --card-bg: #12121a;
-  --card-border: #1e1e2e;
-  --primary: #00ff88;
-  --primary-dim: #00cc6a;
-  --accent: #a855f7;
-  --accent-dim: #7c3aed;
-  --danger: #ff4757;
-  --muted: #4a4a5a;
-  --muted-foreground: #8a8a9a;
+  --background: #ffffff;
+  --foreground: #000000;
+  --card-bg: #ffffff;
+  --card-border: #e0e0e0;
+  --primary: #000000;
+  --primary-dim: #333333;
+  --accent: #666666;
+  --accent-dim: #444444;
+  --danger: #ff0000;
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
 }
 
 @theme inline {
@@ -34,25 +34,25 @@
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--muted) var(--background);
+  scrollbar-color: #cccccc transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--muted);
-  border-radius: 4px;
+  background: #cccccc;
+  border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
+  background: #999999;
 }
 
 body {
@@ -62,41 +62,42 @@ body {
   min-height: 100vh;
 }
 
-/* Glow effects */
+/* Subtle shadows instead of glow */
 .glow-primary {
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), 0 0 40px rgba(0, 255, 136, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .glow-accent {
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3), 0 0 40px rgba(168, 85, 247, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .glow-danger {
-  box-shadow: 0 0 20px rgba(255, 71, 87, 0.3), 0 0 40px rgba(255, 71, 87, 0.1);
+  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.1);
 }
 
 /* Drop zone styling */
 .drop-zone {
-  border: 2px dashed var(--muted);
-  transition: all 0.3s ease;
+  border: 1px dashed #cccccc;
+  transition: all 0.2s ease;
+  background: #fafafa;
 }
 
 .drop-zone:hover,
 .drop-zone.active {
-  border-color: var(--primary);
-  background: rgba(0, 255, 136, 0.05);
+  border-color: #000000;
+  background: #f0f0f0;
 }
 
 .drop-zone.active {
-  animation: pulse-glow 1.5s infinite;
+  animation: pulse-border 1.5s infinite;
 }
 
-@keyframes pulse-glow {
+@keyframes pulse-border {
   0%, 100% {
-    box-shadow: 0 0 10px rgba(0, 255, 136, 0.2);
+    border-color: #000000;
   }
   50% {
-    box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+    border-color: #999999;
   }
 }
 
@@ -104,21 +105,22 @@ body {
 .bucket-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
+  border-radius: 8px;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.03);
 }
 
 .bucket-card:hover {
-  border-color: var(--primary);
-  transform: translateY(-2px);
+  border-color: #000000;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
 }
 
 /* Task item styling */
 .task-item {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 8px 12px;
+  background: transparent;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 8px 0;
   font-family: var(--font-mono), monospace;
   font-size: 13px;
   transition: all 0.15s ease;
@@ -126,8 +128,8 @@ body {
 }
 
 .task-item:hover {
-  background: rgba(0, 255, 136, 0.05);
-  border-color: var(--primary-dim);
+  background: #fafafa;
+  padding-left: 4px;
 }
 
 .task-item:active {
@@ -136,86 +138,87 @@ body {
 
 .task-item.dragging {
   opacity: 0.5;
-  transform: rotate(2deg);
+  background: #f5f5f5;
 }
 
 /* Button styling */
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-  color: var(--background);
-  font-weight: 600;
-  padding: 12px 24px;
-  border-radius: 8px;
+  background: #000000;
+  color: #ffffff;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 6px;
   transition: all 0.2s ease;
-  border: none;
+  border: 1px solid #000000;
   cursor: pointer;
+  letter-spacing: -0.01em;
 }
 
 .btn-primary:hover {
+  background: #333333;
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(0, 255, 136, 0.4);
 }
 
 .btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.3;
   cursor: not-allowed;
   transform: none;
 }
 
 .btn-danger {
-  background: linear-gradient(135deg, var(--danger) 0%, #cc3945 100%);
-  color: white;
-  font-weight: 600;
-  padding: 8px 16px;
-  border-radius: 6px;
+  background: #ffffff;
+  color: #ff0000;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 4px;
   transition: all 0.2s ease;
-  border: none;
+  border: 1px solid #ffcccc;
   cursor: pointer;
   font-size: 12px;
 }
 
 .btn-danger:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+  background: #fff0f0;
+  border-color: #ff0000;
 }
 
 .btn-secondary {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  color: var(--foreground);
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  color: #000000;
   font-weight: 500;
-  padding: 12px 24px;
-  border-radius: 8px;
+  padding: 10px 20px;
+  border-radius: 6px;
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .btn-secondary:hover {
-  border-color: var(--accent);
-  background: rgba(168, 85, 247, 0.1);
+  border-color: #000000;
+  background: #fafafa;
 }
 
 /* Progress bar */
 .progress-bar {
-  background: var(--card-border);
+  background: #f0f0f0;
   border-radius: 9999px;
   overflow: hidden;
-  height: 8px;
+  height: 4px;
 }
 
 .progress-bar-fill {
-  background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+  background: #000000;
   height: 100%;
   transition: width 0.3s ease;
 }
 
 /* Input styling */
 .input-field {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 12px 16px;
-  color: var(--foreground);
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #000000;
   font-family: var(--font-mono), monospace;
   font-size: 14px;
   width: 100%;
@@ -224,12 +227,11 @@ body {
 
 .input-field:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.1);
+  border-color: #000000;
 }
 
 .input-field::placeholder {
-  color: var(--muted-foreground);
+  color: #999999;
 }
 
 /* Masonry grid */
@@ -242,19 +244,10 @@ body {
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 .animate-fade-in {
-  animation: fadeIn 0.3s ease forwards;
-}
-
-.animate-slide-in {
-  animation: slideIn 0.3s ease forwards;
+  animation: fadeIn 0.4s ease forwards;
 }

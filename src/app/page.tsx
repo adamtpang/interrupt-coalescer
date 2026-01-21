@@ -355,9 +355,9 @@ export default function Home() {
   return (
     <main className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="text-center mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold">FlowList</h1>
-        <p className="text-[var(--muted-foreground)] text-sm mt-1">Dump → Coalesce → Tier Rank</p>
+      <div className="text-center mb-12">
+        <h1 className="text-3xl font-bold tracking-tight mb-2">AntList</h1>
+        <p className="text-[var(--muted-foreground)] text-sm font-mono">Dump → Coalesce → Organize</p>
       </div>
 
       {/* Drop Zone */}
@@ -376,8 +376,9 @@ export default function Home() {
           className="hidden"
           onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
         />
-        <div className="text-3xl mb-1">📄</div>
-        <p className="text-sm">Drop .txt, .md to coalesce, or .zip to restore</p>
+        <div className="text-4xl mb-4">🐜</div>
+        <p className="text-sm font-medium">Drop your chaos here</p>
+        <p className="text-xs text-[var(--muted-foreground)] mt-2">.txt, .md, or .zip</p>
       </div>
 
       {/* Progress */}

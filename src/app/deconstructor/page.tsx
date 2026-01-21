@@ -356,10 +356,10 @@ export default function Deconstructor() {
         <main className="min-h-screen p-4 md:p-8 max-w-3xl mx-auto">
             {/* Header */}
             <div className="text-center mb-8">
-                <h1 className="text-2xl md:text-3xl font-bold">FlowList</h1>
-                <p className="text-[var(--muted-foreground)] text-sm mt-1">Break tasks into ≤3 min steps</p>
-        <Link href="/" className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors">
-          ← Back to FlowList
+                <h1 className="text-2xl md:text-3xl font-bold">AntList</h1>
+                <p className="text-[var(--muted-foreground)] text-sm mt-1 font-mono">Tiny steps for big goals</p>
+        <Link href="/" className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors font-mono mt-2 inline-block">
+          ← Back
         </Link>
             </div>
 
